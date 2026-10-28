@@ -1,237 +1,293 @@
-# GILA Kompresor
+# GILA Compressor
 
-Kompresor file/folder dengan rasio ekstrem berbasis **context mixing** (keluarga PAQ/lpaq).
-Sengaja lambat demi ukuran arsip sekecil mungkin. Ditulis dalam C++17, satu file source
-(`gila.cpp`) untuk dua program: `gila-kompres` dan `gila-dekompres`.
+A file/folder compressor with an extreme compression ratio, built on **context mixing** (the PAQ/lpaq family).
+It is slow on purpose, trading time for the smallest possible archive. Written in C++17, with a single source
+file (`gila.cpp`) that builds two programs: `gila-kompres` (compress) and `gila-dekompres` (decompress).
 
-Format arsip: `.gila`
+Archive format: `.gila`
 
-## Daftar isi
+## Table of contents
 
-- [Fitur](#fitur)
-- [Isi repositori](#isi-repositori)
-- [Cara pakai](#cara-pakai)
-- [Level memori (`-m`)](#level-memori--m)
-- [Performa dan kapan cocok dipakai](#performa-dan-kapan-cocok-dipakai)
-- [Build dari source](#build-dari-source)
-- [Cara kerja](#cara-kerja)
-- [Format arsip `.gila`](#format-arsip-gila)
-- [Keamanan dan integritas data](#keamanan-dan-integritas-data)
-- [Kode keluar (exit code)](#kode-keluar-exit-code)
-- [Pemecahan masalah](#pemecahan-masalah)
-- [Batasan](#batasan)
+- [Features](#features)
+- [Repository contents](#repository-contents)
+- [Usage](#usage)
+- [Memory level (`-m`)](#memory-level--m)
+- [Performance and when to use it](#performance-and-when-to-use-it)
+- [Building from source](#building-from-source)
+- [How it works](#how-it-works)
+- [The `.gila` archive format](#the-gila-archive-format)
+- [Safety and data integrity](#safety-and-data-integrity)
+- [Exit codes](#exit-codes)
+- [Troubleshooting](#troubleshooting)
+- [Limitations](#limitations)
 
-## Fitur
+## Features
 
-- Rasio kompresi sangat tinggi untuk teks, CSV, log, kode, database, executable, dan data mentah.
-- Mendukung **file dan folder** (struktur subfolder dipertahankan), banyak input sekaligus.
-- **Drag & drop** di Windows: seret file/folder ke `gila-kompres.exe`, atau `.gila` ke `gila-dekompres.exe`.
-- **Verifikasi CRC32** otomatis saat dekompres: hasil dijamin identik dengan aslinya, atau Anda diberi tahu.
-- Nama file Unicode (UTF-8) didukung di Windows.
-- Filter khusus executable (E8/E9) untuk `.exe`, `.dll`, ELF.
-- File dalam folder diurutkan per ekstensi agar data sejenis berdekatan (rasio lebih baik).
-- Hasil **deterministik dan identik di semua PC**: seluruh aritmetika model memakai integer, tanpa floating point.
-- Progress dengan kecepatan dan perkiraan sisa waktu.
+- Very high compression ratio for text, CSV, logs, source code, databases, executables, and raw data.
+- Supports **files and folders** (subfolder structure is preserved) and multiple inputs at once.
+- **Drag & drop** on Windows: drop a file/folder onto `gila-kompres.exe`, or a `.gila` onto `gila-dekompres.exe`.
+- Automatic **CRC32 verification** on decompression: the output is guaranteed identical to the original, or you are told it is not.
+- Unicode (UTF-8) file names on Windows.
+- Dedicated executable filter (E8/E9) for `.exe`, `.dll`, ELF.
+- Files inside a folder are ordered by extension so similar data sits together (better ratio).
+- **Deterministic, identical results on every PC**: all model arithmetic is integer-only, with no floating point.
+- Progress display with speed and estimated time remaining.
 
-## Isi repositori
+## Repository contents
 
-| File | Keterangan |
-|------|------------|
-| `gila.cpp` | Source code lengkap (C++17), satu file untuk kompresor dan dekompresor |
-| `gila-kompres.exe` | Program kompres (Windows, sudah dibuild) |
-| `gila-dekompres.exe` | Program dekompres (Windows, sudah dibuild) |
-| `BACA-SAYA.txt` | Ringkasan cara pakai singkat |
-| `README.md` | Dokumentasi ini |
+| File | Description |
+|------|-------------|
+| `gila.cpp` | Complete source (C++17), one file for both compressor and decompressor |
+| `gila-kompres.exe` | Compressor (Windows, prebuilt) |
+| `gila-dekompres.exe` | Decompressor (Windows, prebuilt) |
+| `READ-ME.txt` | Short plain-text usage summary |
+| `README.md` | This documentation |
 
-## Cara pakai
+> **Note:** the prebuilt `.exe` files were built before the source was translated to English, so their on-screen
+> messages are still in Indonesian. Rebuild from `gila.cpp` to get English messages. The archive format is unchanged,
+> so old and new builds read each other's archives.
 
-### Drag & drop (paling mudah, Windows)
+## Usage
 
-| Tujuan | Langkah | Hasil |
-|--------|---------|-------|
-| Kompres | Seret file atau folder ke ikon `gila-kompres.exe` | `<nama>.gila` di sebelah file/folder asli |
-| Dekompres | Seret file `.gila` ke ikon `gila-dekompres.exe` | Diekstrak ke folder bernama sama di sebelah arsip |
+### Drag & drop (easiest, Windows)
 
-Jika nama tujuan sudah ada, program tidak menimpa; ia membuat nama baru, mis. `data (2).gila` atau folder `data (2)`.
-Jika dijalankan lewat drag & drop (jendela konsol milik program sendiri), jendela menunggu Enter sebelum menutup agar hasilnya sempat dibaca.
+| Goal | Steps | Result |
+|------|-------|--------|
+| Compress | Drop a file or folder onto `gila-kompres.exe` | `<name>.gila` next to the original |
+| Decompress | Drop a `.gila` file onto `gila-dekompres.exe` | Extracted to a same-named folder next to the archive |
 
-### Lewat command line
+If the target name already exists, nothing is overwritten; a new name is chosen instead, e.g. `data (2).gila` or folder `data (2)`.
+When started by drag & drop (the program owns its console window), the window waits for Enter before closing so you can read the result.
 
-```
-gila-kompres  [-m1..-m11] [-o arsip.gila] file_atau_folder [file_atau_folder ...]
-gila-dekompres arsip.gila [folder_tujuan]
-```
-
-Contoh:
+### Command line
 
 ```
-:: kompres satu folder dengan level default (-m8)
-gila-kompres C:\data\laporan
+gila-kompres  [-m1..-m11] [-o archive.gila] file_or_folder [file_or_folder ...]
+gila-dekompres archive.gila [target_folder]
+```
 
-:: kompres beberapa input sekaligus, level 10, nama output ditentukan
+Examples:
+
+```
+:: compress a folder with the default level (-m8)
+gila-kompres C:\data\reports
+
+:: compress several inputs at once, level 10, explicit output name
 gila-kompres -m10 -o backup.gila C:\data\log.txt C:\data\database
 
-:: dekompres ke folder tertentu
-gila-dekompres backup.gila D:\hasil
+:: decompress into a specific folder
+gila-dekompres backup.gila D:\restored
 
-:: opsi -o juga berlaku untuk dekompres
-gila-dekompres backup.gila -o D:\hasil
+:: -o also works for decompression
+gila-dekompres backup.gila -o D:\restored
 ```
 
-Opsi:
+Options:
 
-| Opsi | Program | Arti |
-|------|---------|------|
-| `-m1` ... `-m11` | kompres | Level memori, default `-m8` |
-| `-o <path>` | kompres | Nama/lokasi arsip output. Default: `<nama input pertama>.gila` di folder input |
-| `-o <folder>` atau argumen kedua | dekompres | Folder tujuan ekstrak. Default: folder bernama sama dengan arsip |
+| Option | Program | Meaning |
+|--------|---------|---------|
+| `-m1` ... `-m11` | compress | Memory level, default `-m8` |
+| `-o <path>` | compress | Output archive name/location. Default: `<first input name>.gila` next to the input |
+| `-o <folder>` or second argument | decompress | Extraction folder. Default: a folder named after the archive |
 
-Tanpa argumen, kedua program menampilkan petunjuk singkat.
+With no arguments, both programs print a short usage message.
 
-## Level memori (`-m`)
+## Memory level (`-m`)
 
-Level menentukan ukuran tabel hash model. Makin tinggi, makin besar memori dan makin baik rasio **untuk data besar**.
+The level sets the size of the model's hash tables. Higher means more memory and a better ratio **on large data**.
 
-| Level | RAM kira-kira | Catatan |
-|-------|---------------|---------|
-| `-m6` | ~0,2 GB | Aman untuk PC dengan RAM kecil |
-| `-m8` | ~0,7 GB | **Default** |
-| `-m10` | ~2,3 GB | Paling bermanfaat untuk data besar (> 100 MB) |
-| `-m11` | ~4,3 GB | Maksimum |
+| Level | Approx. RAM | Notes |
+|-------|-------------|-------|
+| `-m6` | ~0.2 GB | Safe for low-RAM machines |
+| `-m8` | ~0.7 GB | **Default** |
+| `-m10` | ~2.3 GB | Most useful for large data (> 100 MB) |
+| `-m11` | ~4.3 GB | Maximum |
 
-Rumus pemakaian memori (dari source):
+Memory use, from the source, with level $L$ and $L_b = \min(L, 9)$:
 
-```
-RAM = 2^(15+level) * 64  +  2^(19+min(level,9))  +  2^(16+min(level,9))  +  ~45 MB
-        tabel hash          buffer riwayat          tabel match model       tabel lain
-```
+$$
+\text{RAM} \approx \underbrace{64 \cdot 2^{15+L}}_{\text{hash table}} + \underbrace{2^{19+L_b}}_{\text{history buffer}} + \underbrace{2^{16+L_b}}_{\text{match table}} + \underbrace{45\ \text{MB}}_{\text{other tables}} \ \text{bytes}
+$$
 
-> **Penting:** dekompres butuh RAM **sebesar level yang dipakai saat kompres**. Level disimpan di header arsip, jadi tidak perlu diberikan lagi saat dekompres, tetapi PC tujuan harus punya RAM cukup.
+For example, $L = 8$ gives $512\ \text{MB} + 128\ \text{MB} + 16\ \text{MB} + 45\ \text{MB} \approx 0.7\ \text{GB}$.
 
-Level lebih tinggi tidak membantu untuk data kecil; tabel besar hanya menambah waktu inisialisasi dan memori.
-Jika muncul pesan "Memori tidak cukup", turunkan level (mis. `-m6`).
+> **Important:** decompression needs **as much RAM as the level used for compression**. The level is stored in the archive header, so you do not pass it again, but the target machine must have enough memory.
 
-## Performa dan kapan cocok dipakai
+A higher level does not help small inputs; bigger tables only add initialization time and memory use.
+If you see "Not enough memory", lower the level (e.g. `-m6`).
 
-**Kecepatan:** sekitar 0,1 - 0,2 MB/detik, baik kompres maupun dekompres (simetris), single-thread. Contoh: 100 MB butuh sekitar 10-15 menit. Ini disengaja; kompresor context mixing menukar waktu dengan rasio.
+## Performance and when to use it
 
-**Paling ampuh untuk:**
+**Speed:** roughly 0.1 - 0.2 MB/s for both compression and decompression (symmetric), single-threaded. For example, 100 MB takes about 10-15 minutes. This is intentional: context-mixing compressors trade time for ratio.
 
-- Teks, CSV, log, source code
-- Database dan dump data
-- File `.exe` / `.dll` (berkat filter E8/E9)
-- Data mentah/biner terstruktur (tabel berukuran record tetap)
-- File Excel/Word lama (`.xls`, `.doc`)
+**Works best on:**
 
-**Hampir tidak mengecil** (data sudah terkompresi):
+- Text, CSV, logs, source code
+- Databases and data dumps
+- `.exe` / `.dll` files (thanks to the E8/E9 filter)
+- Structured raw/binary data (fixed-size record tables)
+- Old Excel/Word files (`.xls`, `.doc`)
 
-- Gambar/video/audio: JPG, PNG, MP4, MP3
-- Arsip: ZIP, RAR, 7z
+**Barely shrinks** (already compressed):
+
+- Images/video/audio: JPG, PNG, MP4, MP3
+- Archives: ZIP, RAR, 7z
 - PDF
-- `.xlsx`, `.docx`, `.pptx` (isinya sebenarnya ZIP)
+- `.xlsx`, `.docx`, `.pptx` (they are really ZIP files)
 
-Untuk kelompok kedua ini, hasilnya kira-kira sama dengan aslinya dan waktu terbuang percuma.
+For the second group the output is about the same size as the input, and the time is wasted.
 
-## Build dari source
+Reported figures use:
 
-Syarat: compiler C++17 (g++/MinGW-w64, clang, atau MSVC). Di Windows, `windows.h` dan `shellapi.h` dipakai untuk argumen Unicode dan deteksi jendela konsol.
+$$
+\text{ratio} = \frac{S_{\text{in}}}{S_{\text{out}}} : 1, \qquad
+\text{bits per byte} = \frac{8\, S_{\text{out}}}{S_{\text{in}}}
+$$
 
-Contoh dengan g++ (MinGW-w64):
+## Building from source
+
+Requirements: a C++17 compiler (g++/MinGW-w64, clang, or MSVC). On Windows, `windows.h` and `shellapi.h` are used for Unicode arguments and console detection.
+
+Example with g++ (MinGW-w64):
 
 ```
 g++ -O2 -std=c++17 -DGILA_MODE_COMPRESS   gila.cpp -o gila-kompres.exe   -static -lshell32
 g++ -O2 -std=c++17 -DGILA_MODE_DECOMPRESS gila.cpp -o gila-dekompres.exe -static -lshell32
 ```
 
-Di Linux/macOS (tanpa `-lshell32`):
+On Linux/macOS (no `-lshell32`):
 
 ```
 g++ -O2 -std=c++17 -DGILA_MODE_COMPRESS   gila.cpp -o gila-kompres
 g++ -O2 -std=c++17 -DGILA_MODE_DECOMPRESS gila.cpp -o gila-dekompres
 ```
 
-Catatan build:
+Build notes:
 
-- `-DGILA_MODE_COMPRESS` atau `-DGILA_MODE_DECOMPRESS` memilih program. Tanpa keduanya, default-nya kompres.
-- `-DTUNE` membuat parameter model (`LR`, `LRF`, `LIM`, `AR`, `SH`, `W0`, `FW`) bisa diubah lewat environment variable, untuk eksperimen penyetelan. **Jangan** dipakai untuk build rilis: arsip hanya bisa dibuka oleh program dengan parameter yang sama persis.
-- Kompresor dan dekompresor harus dibuild dari versi `gila.cpp` yang sama.
-- Perintah build di atas adalah contoh umum; flag persis yang dipakai untuk `.exe` di repo ini tidak tercatat di source.
+- `-DGILA_MODE_COMPRESS` or `-DGILA_MODE_DECOMPRESS` selects the program. With neither, compress is the default.
+- `-DTUNE` makes the model parameters (`LR`, `LRF`, `LIM`, `AR`, `SH`, `W0`, `FW`) adjustable through environment variables, for tuning experiments. **Do not** use it for release builds: archives can only be opened by a program with exactly the same parameters.
+- The compressor and decompressor must be built from the same version of `gila.cpp`.
+- The commands above are generic examples; the exact flags used for the `.exe` files in this repo are not recorded in the source.
 
-## Cara kerja
+## How it works
 
-Setiap **bit** data diprediksi lalu dikodekan dengan arithmetic coder. Semakin akurat prediksinya, semakin sedikit bit yang dipakai.
+Every **bit** is predicted and then coded with an arithmetic coder. The more accurate the prediction, the fewer bits are spent. Coding a bit $y$ whose predicted probability was $p$ costs about
 
-1. **Banyak model konteks (18 konteks ber-hash + 2 tabel langsung).** Setiap model menebak bit berikutnya berdasarkan konteks berbeda:
-   - order 2, 3, 4, 5, 6, 8, 12, 16 (byte sebelumnya)
-   - model **kata** (hash kata saat ini, bigram, dan skip-word)
-   - model **sparse** (melewati byte tertentu)
-   - model **kolom/tabel** (byte di baris atas pada kolom yang sama, cocok untuk CSV/tabel)
-   - model **indirect** (byte yang dulu mengikuti konteks order-1 / order-2)
-   - model **record** (mendeteksi panjang record tetap dari jarak berulang suatu byte, lalu memakai byte pada record sebelumnya)
-   - order 0 dan order 1 langsung
-2. **Match model.** Mencari kemunculan sebelumnya dari 6+ byte terakhir lewat tabel hash, lalu memprediksi byte yang dulu mengikutinya (berguna untuk pengulangan panjang).
-3. **Slot adaptif.** Tiap konteks menyimpan probabilitas 16-bit, hitungan, dan riwayat 8 bit terakhir. Laju belajar menurun sesuai hitungan (`1/(n+1,5)`), dan riwayat bit dipetakan lagi lewat StateMap untuk koreksi.
-4. **Tiga neural mixer + satu mixer akhir.** Prediksi semua model (domain logit/`stretch`) dicampur dengan bobot yang dilatih online. Mixer dipilih oleh konteks berbeda: jumlah konteks yang ditemukan dan panjang match, bit parsial byte saat ini, serta byte terakhir dan posisi bit.
-5. **Empat tahap APM/SSE.** Hasil mixer disaring tabel koreksi (konteks: bit parsial, order-1, status match, hash order-2), lalu dirata-ratakan dengan bobot tetap.
-6. **Arithmetic coder 32-bit** dengan presisi probabilitas 16-bit.
+$$
+-\log_2 P(y) = \begin{cases} -\log_2 p & y = 1 \\ -\log_2 (1-p) & y = 0 \end{cases}
+$$
 
-Pra-pemrosesan:
+bits, so the whole game is making $p$ close to the truth.
 
-- **Filter E8/E9** untuk executable (deteksi lewat header `MZ` atau `\x7FELF`, ukuran 512 B - 512 MB): alamat relatif instruksi CALL/JMP x86 diubah menjadi absolut agar target yang sama menghasilkan byte yang sama. Reversibel sempurna.
-- **Pengurutan**: dalam folder, subfolder lebih dulu, lalu file dikelompokkan per ekstensi, lalu per nama.
+1. **Many context models (18 hashed contexts + 2 direct tables).** Each model guesses the next bit from a different context:
+   - orders 2, 3, 4, 5, 6, 8, 12, 16 (preceding bytes)
+   - **word** model (current word hash, bigram, and skip-word)
+   - **sparse** models (skipping certain bytes)
+   - **column/table** model (the byte above in the same column, good for CSV/tables)
+   - **indirect** models (the byte that previously followed the order-1 / order-2 context)
+   - **record** model (detects a fixed record length from a repeating byte distance, then uses bytes from the previous records)
+   - direct order 0 and order 1
+2. **Match model.** Looks up an earlier occurrence of the last 6+ bytes through a hash table and predicts the byte that followed it (useful for long repeats).
+3. **Adaptive slots.** Each context stores a 16-bit probability, a count $n$, and the last 8 bits of history. The probability moves toward the observed bit $y$ with a learning rate that decays with the count:
 
-Dekompresor menjalankan model yang sama persis dan membaca bit dari arithmetic decoder, sehingga prosesnya simetris (kecepatan sama).
+$$
+p \leftarrow p + \frac{y - p}{n + 1.5}, \qquad n \leftarrow \min(n + 1,\ n_{\max})
+$$
 
-## Format arsip `.gila`
+   The bit history is also mapped through a StateMap for correction.
+4. **Three neural mixers + one final mixer.** Predictions are moved to the logistic (logit) domain and blended with online-trained weights. The domain transforms are
+
+$$
+\operatorname{squash}(d) = \frac{4096}{1 + e^{-d/256}}, \qquad \operatorname{stretch}(p) = \operatorname{squash}^{-1}(p)
+$$
+
+   With inputs $x_i = \operatorname{stretch}(p_i)$, each mixer computes (the integer implementation shifts right by 16 and clamps the dot product to $[-2047, 2047]$)
+
+$$
+p_{\text{mix}} = \operatorname{squash}\!\Big(\sum_i w_i\, x_i\Big)
+$$
+
+   and then learns by gradient descent on coding cost:
+
+$$
+w_i \leftarrow w_i + \eta \, x_i \,(y - p_{\text{mix}})
+$$
+
+   Each mixer picks its weight set from a different context: the number of contexts found and the match length, the partial bits of the current byte, and the last byte together with the bit position.
+5. **Four APM/SSE stages.** The mixer output is refined by correction tables (contexts: partial bits, order-1, match state, order-2 hash). Each table interpolates linearly between 33 bins over the stretched probability and is updated with $t \leftarrow t + (g - t) / 2^{r}$, where $g$ is the observed bit and $r$ is the rate (6 by default). The four refined probabilities are combined with fixed weights:
+
+$$
+p = \frac{p_1 + 2\,p_2 + 2\,p_3 + 3\,p_4}{8}
+$$
+
+6. **32-bit arithmetic coder** with 16-bit probability precision. The interval $[x_1, x_2]$ is split at
+
+$$
+x_{\text{mid}} = x_1 + \left\lfloor \frac{(x_2 - x_1)\, p_{16}}{2^{16}} \right\rfloor
+$$
+
+   and the bit selects the lower part ($y = 1$) or upper part ($y = 0$). Leading bytes that become equal are shifted out.
+
+Pre-processing:
+
+- **E8/E9 filter** for executables (detected by the `MZ` or `\x7FELF` header, size 512 B - 512 MB): relative x86 CALL/JMP addresses become absolute, so the same target produces the same bytes. Perfectly reversible.
+- **Ordering**: inside a folder, subfolders come first, then files grouped by extension, then by name.
+
+The decompressor runs exactly the same model and reads bits from the arithmetic decoder, so the process is symmetric (same speed).
+
+## The `.gila` archive format
 
 ```
-Offset  Ukuran  Isi
-0       4       Magic "GILA"
-4       1       Versi format (saat ini 1)
-5       1       Level memori (1..11)
-6       ...     Aliran arithmetic-coded yang berisi, berurutan:
-                  - Header: jumlah entri (u32), lalu tiap entri:
-                      tipe (u8: 0 file, 1 folder, 2 executable),
-                      panjang path (u32), path UTF-8 dengan pemisah '/',
-                      ukuran (u64, tidak ada untuk folder)
-                  - Isi semua file, berurutan sesuai daftar entri
-                  - CRC32 seluruh isi file (u32)
+Offset  Size  Contents
+0       4     Magic "GILA"
+4       1     Format version (currently 1)
+5       1     Memory level (1..11)
+6       ...   Arithmetic-coded stream containing, in order:
+                - Header: entry count (u32), then for each entry:
+                    type (u8: 0 file, 1 folder, 2 executable),
+                    path length (u32), UTF-8 path with '/' separator,
+                    size (u64, absent for folders)
+                - The contents of all files, in entry order
+                - CRC32 of all file contents (u32)
 ```
 
-Semua bilangan little-endian. Header dan data berada dalam satu aliran terkompresi yang sama, jadi header pun ikut dikompres.
+All numbers are little-endian. The header and data share one compressed stream, so the header is compressed too.
 
-## Keamanan dan integritas data
+The checksum is the standard CRC-32 (reflected polynomial `0xEDB88320`), computed over the original bytes of every file in order.
 
-- **CRC32** dari seluruh data dihitung saat kompres dan dibandingkan saat dekompres. Jika berbeda, program mencetak peringatan dan keluar dengan kode 2.
-- **Perlindungan path traversal**: saat ekstrak, path yang absolut, memuat `:` atau komponen `..` ditolak dan entri dilewati, sehingga arsip berbahaya tidak bisa menulis di luar folder tujuan.
-- Header divalidasi (jumlah entri, panjang path, tipe) sehingga arsip rusak ditolak.
-- Windows SmartScreen mungkin memperingatkan karena `.exe` tidak bertanda tangan digital. Klik **More info**, lalu **Run anyway**. Anda juga bisa membuild sendiri dari `gila.cpp`.
+## Safety and data integrity
 
-## Kode keluar (exit code)
+- **CRC32** of all data is computed at compression time and compared at decompression time. On mismatch the program prints a warning and exits with code 2.
+- **Path traversal protection**: on extraction, paths that are absolute, contain `:`, or contain a `..` component are rejected and the entry is skipped, so a malicious archive cannot write outside the target folder.
+- The header is validated (entry count, path length, type), so corrupt archives are rejected.
+- Windows SmartScreen may warn because the `.exe` files are not digitally signed. Click **More info**, then **Run anyway**. You can also build from `gila.cpp` yourself.
 
-| Kode | Arti |
-|------|------|
-| 0 | Sukses (dan CRC32 cocok saat dekompres) |
-| 1 | Gagal: input tidak ditemukan, bukan arsip GILA yang valid, versi/level tidak didukung, arsip rusak, tidak bisa membuat/membuka file, atau memori tidak cukup |
-| 2 | Dekompres selesai tetapi CRC32 tidak cocok (arsip rusak) |
+## Exit codes
 
-## Pemecahan masalah
+| Code | Meaning |
+|------|---------|
+| 0 | Success (and CRC32 matched, for decompression) |
+| 1 | Failure: input not found, not a valid GILA archive, unsupported version/level, corrupt archive, cannot create/open a file, or not enough memory |
+| 2 | Decompression finished but CRC32 did not match (corrupt archive) |
 
-| Gejala | Penyebab / solusi |
-|--------|-------------------|
-| `Memori tidak cukup` | Level terlalu tinggi untuk RAM yang ada. Kompres ulang dengan level lebih kecil. Untuk dekompres, gunakan PC dengan RAM cukup (level sudah tetap di arsip). |
-| `Bukan file .gila yang valid` | Magic tidak cocok; file bukan arsip GILA atau terpotong. |
-| `Versi/level arsip tidak didukung` | Arsip dibuat oleh versi program yang berbeda. |
-| `CRC32 TIDAK cocok` | Arsip rusak atau terpotong (mis. unduhan tidak lengkap). |
-| `Tidak bisa menulis ... (dilewati)` | Path tujuan tidak bisa ditulis, atau path di arsip dianggap tidak aman. |
-| Sangat lambat | Normal (~0,1-0,2 MB/detik). Gunakan level lebih kecil untuk data kecil, dan hindari memasukkan file yang sudah terkompresi. |
-| Peringatan SmartScreen | Lihat bagian [Keamanan](#keamanan-dan-integritas-data). |
+## Troubleshooting
 
-## Batasan
+| Symptom | Cause / fix |
+|---------|-------------|
+| `Not enough memory` | The level is too high for the available RAM. Recompress with a lower level. For decompression, use a machine with enough RAM (the level is fixed in the archive). |
+| `Not a valid .gila file` | The magic does not match; the file is not a GILA archive or is truncated. |
+| `Unsupported archive version/level` | The archive was made by a different program version. |
+| `CRC32 MISMATCH` | The archive is corrupt or truncated (e.g. an incomplete download). |
+| `Cannot write ... (skipped)` | The destination path is not writable, or the path in the archive was judged unsafe. |
+| Very slow | Normal (~0.1-0.2 MB/s). Use a lower level for small data, and avoid feeding already-compressed files. |
+| SmartScreen warning | See [Safety and data integrity](#safety-and-data-integrity). |
+| Messages are in Indonesian | The prebuilt `.exe` files predate the translation. Rebuild from `gila.cpp`. |
 
-- Single-thread dan lambat; tidak cocok untuk data puluhan GB atau pemakaian yang butuh cepat.
-- Tidak ada kompresi paralel, tidak ada ekstrak sebagian (harus dekompres dari awal), dan tidak ada enkripsi/password.
-- Tidak menyimpan metadata (tanggal modifikasi, atribut, permission); hanya path dan isi.
-- Folder kosong dipertahankan, tetapi symlink dan file khusus dilewati (hanya file reguler dan folder).
-- File yang gagal dibuka saat kompres diisi nol (program memberi peringatan).
-- Arsip tidak kompatibel antar versi format yang berbeda.
+## Limitations
+
+- Single-threaded and slow; not suited to tens of GB of data or anything needing speed.
+- No parallel compression, no partial extraction (decompression always starts from the beginning), and no encryption/password.
+- No metadata is stored (modification time, attributes, permissions), only paths and contents.
+- Empty folders are kept, but symlinks and special files are skipped (only regular files and folders are archived).
+- A file that fails to open during compression is filled with zeros (the program prints a warning).
+- Archives are not compatible across different format versions.

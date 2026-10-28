@@ -1,13 +1,13 @@
 // =====================================================================
-//  GILA - kompresor "context mixing" rasio ekstrem
-//  Satu source untuk dua program:
-//     -DGILA_MODE_COMPRESS   -> gila-kompres
-//     -DGILA_MODE_DECOMPRESS -> gila-dekompres
-//  Prinsip: tiap bit diprediksi oleh banyak model konteks (order 1..16,
-//  kata, kolom/tabel, sparse, match panjang), prediksinya dicampur oleh
-//  3 neural mixer + 1 mixer akhir, disaring 4 tahap APM/SSE, lalu
-//  dikodekan dengan arithmetic coder 32-bit presisi 16-bit.
-//  Semua aritmetika model berbasis integer -> hasil identik di semua PC.
+//  GILA - extreme-ratio "context mixing" compressor
+//  One source file for two programs:
+//     -DGILA_MODE_COMPRESS   -> gila-kompres   (compressor)
+//     -DGILA_MODE_DECOMPRESS -> gila-dekompres (decompressor)
+//  Principle: every bit is predicted by many context models (orders 1..16,
+//  word, column/table, sparse, long match); the predictions are blended by
+//  3 neural mixers + 1 final mixer, refined by 4 APM/SSE stages, then
+//  coded with a 32-bit arithmetic coder using 16-bit probability precision.
+//  All model arithmetic is integer-based -> identical results on every PC.
 // =====================================================================
 #include <cstdio>
 #include <cstdint>
@@ -69,7 +69,7 @@ static inline U64 hash64(U64 a, U64 b) {
     return h;
 }
 
-// Slot: 22-bit probabilitas + 10-bit hitungan (laju belajar adaptif 1/(n+1.5))
+// Slot: 22-bit probability + 10-bit count (adaptive learning rate 1/(n+1.5))
 static const U32 SLOT_INIT = 1u << 31;
 static inline void slotUpdate(U32* s, int y, U32 limit) {
     U32 v = *s;
@@ -82,7 +82,7 @@ static inline void slotUpdate(U32* s, int y, U32 limit) {
 }
 static inline int slotP(U32 s) { int p = (int)(s >> 20); return p < 1 ? 1 : (p > 4095 ? 4095 : p); }
 
-// Slot konteks: p16 langsung (16 bit) | hitungan n (8 bit) | riwayat 8 bit terakhir
+// Context slot: direct p16 (16 bit) | count n (8 bit) | last 8 bits of history
 static inline void cslotUpdate(U32* s, int y, U32 limit) {
     U32 v = *s;
     U32 n = (v >> 8) & 255;
@@ -92,7 +92,7 @@ static inline void cslotUpdate(U32* s, int y, U32 limit) {
     *s = ((U32)p << 16) | (n << 8) | (((v << 1) | (U32)y) & 255);
 }
 static inline int cslotP(U32 s) { int p = (int)(s >> 20); return p < 1 ? 1 : (p > 4095 ? 4095 : p); }
-static inline int histIdx(U32 s) {        // riwayat bit -> indeks StateMap (0..1023)
+static inline int histIdx(U32 s) {        // bit history -> StateMap index (0..1023)
     U32 n = (s >> 8) & 255, h = s & 255;
     if (n < 8) return (int)((1u << n) | (h & ((1u << n) - 1)));
     int nq = n < 16 ? 0 : (n < 48 ? 1 : 2);
@@ -156,8 +156,8 @@ struct APM {
 // ---------------------------------------------------------------- predictor
 struct Bucket { U16 chk; U16 pad; U32 s[15]; };   // 64 byte = 1 cache line
 
-static const int NH = 18;                // jumlah konteks ber-hash
-static const int NIN = (NH + 2) * 3 + 3; // input mixer
+static const int NH = 18;                // number of hashed contexts
+static const int NIN = (NH + 2) * 3 + 3; // mixer inputs
 
 struct Predictor {
     int L = 8;
@@ -170,7 +170,7 @@ struct Predictor {
     U64 pos = 0;
     U32 wordh = 0, word2 = 0, word3 = 0;
     U64 lineStart = 0, prevLineLen = 0;
-    std::vector<U16> ih1, ih2;            // byte yang dulu mengikuti konteks order-1 / order-2
+    std::vector<U16> ih1, ih2;            // bytes that previously followed the order-1 / order-2 context
     std::vector<U64> lastPos; std::vector<U32> lastDist;
     U32 rlen = 0, rcand = 0; int rhits = 0;  // record model
 
@@ -259,18 +259,18 @@ struct Predictor {
         ctxv[5]  = c4 | ((U64)c8 << 32);                          // order 8
         ctxv[6]  = hash64(c4 | ((U64)c8 << 32), c12);             // order 12
         ctxv[7]  = hash64(c4 | ((U64)c8 << 32), c12 | ((U64)c16 << 32)); // order 16
-        ctxv[8]  = wordh ? (U64)wordh : (0x100000000ULL | c1);    // kata
-        ctxv[9]  = hash64(wordh, word2);                          // bigram kata
+        ctxv[8]  = wordh ? (U64)wordh : (0x100000000ULL | c1);    // word
+        ctxv[9]  = hash64(wordh, word2);                          // word bigram
         ctxv[10] = hash64(word2 | ((U64)word3 << 32), wordh ? 1 : (c1 + 2)); // skip-word
         ctxv[11] = c4 & 0xffff00;                                 // sparse (byte 2,3)
         ctxv[12] = (c4 & 0xff00ff) | ((U64)(c8 & 0xff) << 32);    // sparse
-        ctxv[13] = above | ((U64)above2 << 8) | (colq << 16) | ((U64)c1 << 24); // kolom/tabel
+        ctxv[13] = above | ((U64)above2 << 8) | (colq << 16) | ((U64)c1 << 24); // column/table
         ctxv[14] = c1 | ((U64)ih1[c1] << 8);                                     // indirect order-1
         ctxv[15] = (c4 & 0xffff) | ((U64)ih2[c4 & 0xffff] << 16);                // indirect order-2
         U32 r1 = 0, r2 = 0;
         if (rlen && pos >= 2ULL * rlen) { r1 = buf[(pos - rlen) & bufmask]; r2 = buf[(pos - 2 * rlen) & bufmask]; }
-        ctxv[16] = rlen ? hash64(rlen, r1 | (r2 << 8)) : 0;                       // record: kolom vertikal
-        ctxv[17] = rlen ? hash64((U64)rlen << 1 | 1, r1 | (c1 << 8)) : 1;          // record + byte terakhir
+        ctxv[16] = rlen ? hash64(rlen, r1 | (r2 << 8)) : 0;                       // record: vertical column
+        ctxv[17] = rlen ? hash64((U64)rlen << 1 | 1, r1 | (c1 << 8)) : 1;          // record + last byte
         for (int i = 0; i < NH; ++i) ctxh[i] = hash64(ctxv[i], (U64)(i + 1) * 0x10001ULL);
     }
 
@@ -486,7 +486,7 @@ struct Progress {
         double pct = total ? 100.0 * done / total : 100.0;
         double spd = el > 0 ? done / el / 1048576.0 : 0;
         double eta = (spd > 0 && total > done) ? (total - done) / 1048576.0 / spd : 0;
-        printf("\r  %5.1f%%  %s -> %s   %.2f MB/s   sisa ~%.0f dtk     ", pct, human(done).c_str(), human(outb).c_str(), spd, eta);
+        printf("\r  %5.1f%%  %s -> %s   %.2f MB/s   ETA ~%.0f s     ", pct, human(done).c_str(), human(outb).c_str(), spd, eta);
         fflush(stdout);
     }
     double elapsed() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); }
@@ -496,7 +496,7 @@ static void pauseIfOwnConsole() {
 #ifdef _WIN32
     DWORD list[4];
     if (GetConsoleProcessList(list, 4) <= 1) {
-        printf("\nTekan Enter untuk menutup...");
+        printf("\nPress Enter to close...");
         fflush(stdout);
         getchar();
     }
@@ -516,11 +516,11 @@ static fs::path uniquePath(fs::path p) {
 
 static const char MAGIC[4] = {'G', 'I', 'L', 'A'};
 
-// type: 0 = file biasa, 1 = folder, 2 = file executable (difilter E8/E9)
+// type: 0 = regular file, 1 = folder, 2 = executable file (E8/E9 filtered)
 struct Entry { int type; std::string path; U64 size; fs::path src; };
 
-// Filter E8/E9: alamat relatif CALL/JMP x86 -> absolut, supaya target yang sama
-// menghasilkan byte yang sama (lebih mudah diprediksi). Reversibel sempurna.
+// E8/E9 filter: relative x86 CALL/JMP addresses -> absolute, so the same target
+// always produces the same bytes (easier to predict). Perfectly reversible.
 static void e8e9(std::vector<U8>& b, bool enc) {
     size_t n = b.size();
     for (size_t i = 0; i + 4 < n;) {
@@ -549,20 +549,20 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
     for (auto& in0 : inputs) {
         std::error_code ec;
         fs::path in = fs::absolute(in0, ec);
-        if (!fs::exists(in)) { printf("  [!] Tidak ditemukan: %s\n", toU8(in0).c_str()); return 1; }
+        if (!fs::exists(in)) { printf("  [!] Not found: %s\n", toU8(in0).c_str()); return 1; }
         std::string base = toU8(in.filename());
         if (base.empty()) base = toU8(in.parent_path().filename());
         if (fs::is_directory(in)) {
             ents.push_back({1, base, 0, in});
             std::vector<Entry> sub;
-            // penelusuran manual (lebih andal daripada recursive_directory_iterator di Windows)
+            // manual traversal (more reliable than recursive_directory_iterator on Windows)
             std::vector<std::pair<fs::path, std::string>> stack{{in, base}};
             while (!stack.empty()) {
                 auto [dir, relDir] = stack.back();
                 stack.pop_back();
                 std::error_code e2;
                 fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, e2), endIt;
-                if (e2) { printf("  [!] Tidak bisa membaca folder %s\n", relDir.c_str()); continue; }
+                if (e2) { printf("  [!] Cannot read folder %s\n", relDir.c_str()); continue; }
                 for (; it != endIt; it.increment(e2)) {
                     if (e2) break;
                     fs::path p = it->path();
@@ -574,7 +574,7 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
                     else if (fs::is_regular_file(stt)) { U64 sz = (U64)fs::file_size(p, e3); if (!e3) sub.push_back({0, rel, sz, p}); }
                 }
             }
-            // folder dulu, lalu file dikelompokkan per ekstensi (rasio lebih baik)
+            // folders first, then files grouped by extension (better ratio)
             std::stable_sort(sub.begin(), sub.end(), [](const Entry& a, const Entry& b) {
                 if (a.type != b.type) return a.type > b.type;
                 if (a.type == 0) {
@@ -598,7 +598,7 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
         total += e.size; ++nfiles;
     }
 
-    // header (ikut dikompres)
+    // header (compressed along with the data)
     std::vector<U8> hdr;
     auto put32 = [&](U32 v) { for (int i = 0; i < 4; ++i) hdr.push_back((U8)(v >> (8 * i))); };
     auto put64 = [&](U64 v) { for (int i = 0; i < 8; ++i) hdr.push_back((U8)(v >> (8 * i))); };
@@ -611,20 +611,20 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
     }
 
     FILE* fo = openFile(out, "wb");
-    if (!fo) { printf("  [!] Tidak bisa membuat file output: %s\n", toU8(out).c_str()); return 1; }
+    if (!fo) { printf("  [!] Cannot create output file: %s\n", toU8(out).c_str()); return 1; }
     static char obuf[1 << 20]; setvbuf(fo, obuf, _IOFBF, sizeof obuf);
     fwrite(MAGIC, 1, 4, fo);
     putc(GILA_VERSION, fo); putc(level, fo);
 
     int lb = level > 9 ? 9 : level;
     U64 mem = (1ULL << (15 + level)) * 64 + (1ULL << (19 + lb)) + (1ULL << (16 + lb)) + 45000000ULL;
-    printf("  Input  : %d file, total %s\n", nfiles, human(total).c_str());
+    printf("  Input  : %d file(s), total %s\n", nfiles, human(total).c_str());
     printf("  Output : %s\n", toU8(out).c_str());
     printf("  Level  : %d (RAM ~%s)\n", level, human(mem).c_str());
-    printf("  Menyiapkan model...\n");
+    printf("  Preparing model...\n");
 
     Predictor* P = new (std::nothrow) Predictor();
-    if (!P || !P->init(level)) { printf("  [!] Memori tidak cukup. Coba level lebih kecil, mis. -m6\n"); fclose(fo); return 1; }
+    if (!P || !P->init(level)) { printf("  [!] Not enough memory. Try a lower level, e.g. -m6\n"); fclose(fo); return 1; }
     Encoder E(fo);
     auto encByte = [&](int c) {
         for (int i = 7; i >= 0; --i) { int y = (c >> i) & 1; E.bit(y, P->p()); P->update(y); }
@@ -638,8 +638,8 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
         if (e.type == 1) continue;
         FILE* fi = openFile(e.src, "rb");
         U64 left = e.size;
-        if (!fi) printf("\n  [!] Gagal membuka %s (diisi nol)\n", e.path.c_str());
-        if (e.type == 2) {       // executable: baca utuh, filter E8/E9, lalu kodekan
+        if (!fi) printf("\n  [!] Failed to open %s (filled with zeros)\n", e.path.c_str());
+        if (e.type == 2) {       // executable: read whole, apply E8/E9 filter, then encode
             std::vector<U8> fb((size_t)e.size, 0);
             size_t got = fi ? fread(fb.data(), 1, fb.size(), fi) : 0; (void)got;
             for (U8 b : fb) crc = crcUpd(crc, b);
@@ -667,9 +667,9 @@ static int doCompress(const std::vector<fs::path>& inputs, fs::path out, int lev
     fclose(fo);
     delete P;
     U64 outSize = E.outBytes + 6;
-    printf("\n\n  SELESAI dalam %.1f detik\n", pg.elapsed());
+    printf("\n\n  DONE in %.1f seconds\n", pg.elapsed());
     printf("  %s  ->  %s", human(total).c_str(), human(outSize).c_str());
-    if (total) printf("   (%.2f%% dari asli, rasio %.2f : 1, %.3f bit/byte)", 100.0 * outSize / total, (double)total / outSize, 8.0 * outSize / total);
+    if (total) printf("   (%.2f%% of original, ratio %.2f : 1, %.3f bits/byte)", 100.0 * outSize / total, (double)total / outSize, 8.0 * outSize / total);
     printf("\n");
     return 0;
 }
@@ -688,36 +688,36 @@ static bool safeRel(const std::string& s) {
 
 static int doDecompress(const fs::path& in, fs::path outDir) {
     FILE* fi = openFile(in, "rb");
-    if (!fi) { printf("  [!] Tidak bisa membuka %s\n", toU8(in).c_str()); return 1; }
+    if (!fi) { printf("  [!] Cannot open %s\n", toU8(in).c_str()); return 1; }
     static char ibuf[1 << 20]; setvbuf(fi, ibuf, _IOFBF, sizeof ibuf);
     char mg[4];
-    if (fread(mg, 1, 4, fi) != 4 || memcmp(mg, MAGIC, 4) != 0) { printf("  [!] Bukan file .gila yang valid\n"); fclose(fi); return 1; }
+    if (fread(mg, 1, 4, fi) != 4 || memcmp(mg, MAGIC, 4) != 0) { printf("  [!] Not a valid .gila file\n"); fclose(fi); return 1; }
     int ver = getc(fi), level = getc(fi);
-    if (ver != GILA_VERSION || level < 1 || level > 11) { printf("  [!] Versi/level arsip tidak didukung (v%d, level %d)\n", ver, level); fclose(fi); return 1; }
+    if (ver != GILA_VERSION || level < 1 || level > 11) { printf("  [!] Unsupported archive version/level (v%d, level %d)\n", ver, level); fclose(fi); return 1; }
     std::error_code ec;
     U64 inSize = fs::file_size(in, ec);
 
-    printf("  Arsip  : %s (%s, level %d)\n", toU8(in).c_str(), human(inSize).c_str(), level);
-    printf("  Tujuan : %s\n", toU8(outDir).c_str());
-    printf("  Menyiapkan model...\n");
+    printf("  Archive: %s (%s, level %d)\n", toU8(in).c_str(), human(inSize).c_str(), level);
+    printf("  Target : %s\n", toU8(outDir).c_str());
+    printf("  Preparing model...\n");
     Predictor* P = new (std::nothrow) Predictor();
-    if (!P || !P->init(level)) { printf("  [!] Memori tidak cukup untuk level %d\n", level); fclose(fi); return 1; }
+    if (!P || !P->init(level)) { printf("  [!] Not enough memory for level %d\n", level); fclose(fi); return 1; }
     Decoder D(fi);
     auto decByte = [&]() { int c = 0; for (int i = 0; i < 8; ++i) { int y = D.bit(P->p()); P->update(y); c = (c << 1) | y; } return c; };
     auto get32 = [&]() { U32 v = 0; for (int i = 0; i < 4; ++i) v |= (U32)decByte() << (8 * i); return v; };
     auto get64 = [&]() { U64 v = 0; for (int i = 0; i < 8; ++i) v |= (U64)decByte() << (8 * i); return v; };
 
     U32 n = get32();
-    if (n > 50000000) { printf("  [!] Arsip rusak\n"); return 1; }
+    if (n > 50000000) { printf("  [!] Corrupt archive\n"); return 1; }
     std::vector<Entry> ents(n);
     U64 total = 0;
     for (U32 i = 0; i < n; ++i) {
         ents[i].type = decByte();
         U32 len = get32();
-        if (len > 65536) { printf("  [!] Arsip rusak\n"); return 1; }
+        if (len > 65536) { printf("  [!] Corrupt archive\n"); return 1; }
         ents[i].path.resize(len);
         for (U32 k = 0; k < len; ++k) ents[i].path[k] = (char)decByte();
-        if (ents[i].type > 2) { printf("  [!] Arsip rusak\n"); return 1; }
+        if (ents[i].type > 2) { printf("  [!] Corrupt archive\n"); return 1; }
         ents[i].size = ents[i].type != 1 ? get64() : 0;
         total += ents[i].size;
     }
@@ -732,9 +732,9 @@ static int doDecompress(const fs::path& in, fs::path outDir) {
         if (e.type == 1) { if (ok) fs::create_directories(dst, ec); continue; }
         if (ok) fs::create_directories(dst.parent_path(), ec);
         FILE* fo = ok ? openFile(dst, "wb") : nullptr;
-        if (!fo) printf("\n  [!] Tidak bisa menulis %s (dilewati)\n", e.path.c_str());
+        if (!fo) printf("\n  [!] Cannot write %s (skipped)\n", e.path.c_str());
         U64 left = e.size;
-        if (e.type == 2) {       // executable: dekode utuh, balikkan filter E8/E9
+        if (e.type == 2) {       // executable: decode whole, undo E8/E9 filter
             std::vector<U8> fb((size_t)e.size);
             for (size_t i = 0; i < fb.size(); ++i) {
                 fb[i] = (U8)decByte();
@@ -760,9 +760,9 @@ static int doDecompress(const fs::path& in, fs::path outDir) {
     pg.show(done, done, true);
     fclose(fi);
     delete P;
-    printf("\n\n  SELESAI dalam %.1f detik: %d file, %s\n", pg.elapsed(), nfiles, human(total).c_str());
-    if (crc == stored) { printf("  Verifikasi CRC32: OK (data identik 100%%)\n"); return 0; }
-    printf("  [!] CRC32 TIDAK cocok - arsip rusak!\n");
+    printf("\n\n  DONE in %.1f seconds: %d file(s), %s\n", pg.elapsed(), nfiles, human(total).c_str());
+    if (crc == stored) { printf("  CRC32 verification: OK (data 100%% identical)\n"); return 0; }
+    printf("  [!] CRC32 MISMATCH - archive is corrupt!\n");
     return 2;
 }
 
@@ -793,7 +793,7 @@ int main(int argc, char** argv) {
     std::vector<fs::path> args = getArgs(argc, argv);
     int rc = 0;
 #ifdef GILA_MODE_COMPRESS
-    printf("GILA Kompres v%d - context mixing, rasio ekstrem\n\n", GILA_VERSION);
+    printf("GILA Compress v%d - context mixing, extreme ratio\n\n", GILA_VERSION);
     int level = 8; fs::path out; std::vector<fs::path> ins;
     for (size_t i = 0; i < args.size(); ++i) {
         std::string s = toU8(args[i]);
@@ -802,12 +802,12 @@ int main(int argc, char** argv) {
         else ins.push_back(args[i]);
     }
     if (ins.empty()) {
-        printf("Cara pakai:\n"
-               "  - Seret (drag & drop) file/folder ke ikon gila-kompres.exe, ATAU\n"
-               "  - gila-kompres [-m1..-m11] [-o arsip.gila] file/folder ...\n\n"
-               "  -mN : level memori (default 8 ~ 0,7 GB RAM, 10 ~ 2,4 GB, 11 ~ 4,4 GB).\n"
-               "        Level lebih tinggi = rasio lebih baik untuk data besar.\n"
-               "        Dekompres butuh RAM yang sama dengan saat kompres.\n");
+        printf("Usage:\n"
+               "  - Drag & drop a file/folder onto gila-kompres.exe, OR\n"
+               "  - gila-kompres [-m1..-m11] [-o archive.gila] file/folder ...\n\n"
+               "  -mN : memory level (default 8 ~ 0.7 GB RAM, 10 ~ 2.4 GB, 11 ~ 4.4 GB).\n"
+               "        Higher level = better ratio on large data.\n"
+               "        Decompression needs the same RAM as compression did.\n");
         pauseIfOwnConsole();
         return 0;
     }
@@ -818,7 +818,7 @@ int main(int argc, char** argv) {
     }
     rc = doCompress(ins, out, level);
 #else
-    printf("GILA Dekompres v%d\n\n", GILA_VERSION);
+    printf("GILA Decompress v%d\n\n", GILA_VERSION);
     fs::path in, outDir;
     for (size_t i = 0; i < args.size(); ++i) {
         std::string s = toU8(args[i]);
@@ -827,17 +827,17 @@ int main(int argc, char** argv) {
         else outDir = args[i];
     }
     if (in.empty()) {
-        printf("Cara pakai:\n"
-               "  - Seret file .gila ke ikon gila-dekompres.exe, ATAU\n"
-               "  - gila-dekompres arsip.gila [folder_tujuan]\n\n"
-               "  Default: diekstrak ke folder bernama sama di samping arsip.\n");
+        printf("Usage:\n"
+               "  - Drag a .gila file onto gila-dekompres.exe, OR\n"
+               "  - gila-dekompres archive.gila [target_folder]\n\n"
+               "  Default: extracted to a folder with the same name next to the archive.\n");
         pauseIfOwnConsole();
         return 0;
     }
     if (outDir.empty()) {
         fs::path a = fs::absolute(in);
         std::string st = toU8(a.stem());
-        if (st.empty()) st = "hasil_gila";
+        if (st.empty()) st = "gila_output";
         outDir = uniquePath(a.parent_path() / fromU8(st));
     }
     rc = doDecompress(in, outDir);

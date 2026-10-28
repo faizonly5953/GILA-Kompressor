@@ -1,0 +1,36 @@
+GILA - extreme-ratio compressor (context mixing)
+================================================
+
+HOW TO USE (easiest)
+  Compress   : drag & drop a file or folder onto gila-kompres.exe
+               -> result is <name>.gila next to the original file/folder
+  Decompress : drag a .gila file onto gila-dekompres.exe
+               -> extracted to a same-named folder next to the archive
+
+FROM THE COMMAND LINE
+  gila-kompres  [-m1..-m11] [-o archive.gila] file_or_folder ...
+  gila-dekompres archive.gila [target_folder]
+
+MEMORY LEVEL (-m)
+  -m6  ~ 0.2 GB RAM
+  -m8  ~ 0.7 GB RAM   (default)
+  -m10 ~ 2.3 GB RAM   (the most "insane" for big data, > 100 MB)
+  -m11 ~ 4.3 GB RAM
+  A higher level only helps when the data is large.
+  IMPORTANT: decompression needs as much RAM as the level used to compress.
+
+GOOD TO KNOW
+  - Slow, on purpose: about 0.1-0.2 MB per second, both compressing and
+    decompressing. Example: 100 MB ~ 10-15 minutes.
+  - Strongest on: text, CSV, logs, code, databases, .exe/.dll files, raw
+    data, and old Excel/Word files (.xls/.doc).
+  - Barely shrinks: files that are ALREADY compressed, such as JPG, PNG, MP4,
+    MP3, ZIP, RAR, 7z, PDF, and .xlsx/.docx/.pptx (they are really ZIP).
+  - Every archive stores a CRC32, so decompression automatically verifies
+    that the result is 100% identical to the original.
+  - Windows SmartScreen may warn because these exe files are not digitally
+    signed. Click "More info" then "Run anyway".
+
+Full source code: gila.cpp (C++17). One source for both programs:
+  -DGILA_MODE_COMPRESS / -DGILA_MODE_DECOMPRESS
+Full documentation: README.md
