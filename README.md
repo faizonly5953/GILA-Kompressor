@@ -198,13 +198,13 @@ $$
 4. **Three neural mixers + one final mixer.** Predictions are moved to the logistic (logit) domain and blended with online-trained weights. The domain transforms are
 
 $$
-\operatorname{squash}(d) = \frac{4096}{1 + e^{-d/256}}, \qquad \operatorname{stretch}(p) = \operatorname{squash}^{-1}(p)
+\mathrm{squash}(d) = \frac{4096}{1 + e^{-d/256}}, \qquad \mathrm{stretch}(p) = \mathrm{squash}^{-1}(p)
 $$
 
-   With inputs $x_i = \operatorname{stretch}(p_i)$, each mixer computes (the integer implementation shifts right by 16 and clamps the dot product to $[-2047, 2047]$)
+   With inputs $x_i = \mathrm{stretch}(p_i)$, each mixer computes (the integer implementation shifts right by 16 and clamps the dot product to $[-2047, 2047]$)
 
 $$
-p_{\text{mix}} = \operatorname{squash}\!\Big(\sum_i w_i\, x_i\Big)
+p_{\text{mix}} = \mathrm{squash}\!\Big(\sum_i w_i\, x_i\Big)
 $$
 
    and then learns by gradient descent on coding cost:
