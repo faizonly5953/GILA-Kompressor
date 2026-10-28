@@ -1,0 +1,35 @@
+GILA - Kompresor rasio ekstrem (context mixing)
+===============================================
+
+CARA PAKAI (paling gampang)
+  Kompres   : seret (drag & drop) file atau folder ke ikon gila-kompres.exe
+              -> hasilnya <nama>.gila di sebelah file/folder aslinya
+  Dekompres : seret file .gila ke ikon gila-dekompres.exe
+              -> diekstrak ke folder bernama sama di sebelah arsipnya
+
+LEWAT CMD
+  gila-kompres  [-m1..-m11] [-o arsip.gila] file_atau_folder ...
+  gila-dekompres arsip.gila [folder_tujuan]
+
+LEVEL MEMORI (-m)
+  -m6  ~ 0,2 GB RAM
+  -m8  ~ 0,7 GB RAM   (default)
+  -m10 ~ 2,3 GB RAM   (paling "gila" untuk data besar, > 100 MB)
+  -m11 ~ 4,3 GB RAM
+  Level lebih tinggi hanya membantu kalau datanya besar.
+  PENTING: dekompres butuh RAM sebesar level yang dipakai saat kompres.
+
+YANG PERLU DIKETAHUI
+  - Lambat, sengaja: sekitar 0,1-0,2 MB per detik, kompres maupun dekompres.
+    Contoh: 100 MB ~ 10-15 menit.
+  - Paling ampuh untuk: teks, CSV, log, kode, database, file .exe/.dll, data
+    mentah, dan file Excel/Word lama (.xls/.doc).
+  - Hampir tidak mengecil: file yang SUDAH terkompresi, seperti JPG, PNG, MP4,
+    MP3, ZIP, RAR, 7z, PDF, serta .xlsx/.docx/.pptx (isinya sebenarnya ZIP).
+  - Setiap arsip menyimpan CRC32, jadi dekompres otomatis memverifikasi bahwa
+    hasilnya identik 100% dengan aslinya.
+  - Windows SmartScreen mungkin memperingatkan karena exe ini tidak bertanda
+    tangan digital. Klik "More info" lalu "Run anyway".
+
+Source code lengkap: gila.cpp (C++17). Satu source untuk kedua program:
+  -DGILA_MODE_COMPRESS / -DGILA_MODE_DECOMPRESS
